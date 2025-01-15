@@ -53,7 +53,6 @@ class Pipeline:
         messages: List[dict], 
         body: dict
     ) -> Union[str, Generator, Iterator]:
-        # This is where you can add your custom pipelines like RAG.
         print(f"pipe:{__name__}")
 
         print(messages)
@@ -114,16 +113,17 @@ class Pipeline:
         }
         
         # Simple helper to detect if it's an o1 model
-        # Adjust this check based on how your "o1" models are named
         def is_o1_model(m: str) -> bool:
             return "o1" in m or m.endswith("o")
 
-        # Remap user field if needed
+        # Ensure user is a string
         if "user" in body and not isinstance(body["user"], str):
             body["user"] = body["user"].get("id", str(body["user"]))
 
-        # Pick which allowed params to filter by
+        # If it's an o1 model, remove or override streaming
         if is_o1_model(model_id):
+            # Remove the 'stream' parameter to force non-streaming
+            body.pop("stream", None)
             filtered_body = {k: v for k, v in body.items() if k in allowed_params_o1}
         else:
             filtered_body = {k: v for k, v in body.items() if k in allowed_params_default}
@@ -138,13 +138,16 @@ class Pipeline:
                 url=url,
                 json=filtered_body,
                 headers=headers,
-                stream=True,
+                stream=True,  # We'll check below if 'stream' is actually allowed
             )
             r.raise_for_status()
+
+            # If 'stream' is allowed in filtered_body (non-o1 model), stream
             if filtered_body.get("stream"):
                 return r.iter_lines()
             else:
                 return r.json()
+
         except Exception as e:
             # If the request object exists, return its text
             if 'r' in locals() and r is not None:
