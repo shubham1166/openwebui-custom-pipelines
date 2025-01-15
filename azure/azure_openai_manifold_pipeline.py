@@ -104,11 +104,8 @@ class Pipeline:
         allowed_params_o1 = {
             "model",
             "messages",
-            "temperature",
             "top_p",
             "n",
-            "stream",
-            "stop",
             "max_completion_tokens",
             "presence_penalty",
             "frequency_penalty",
