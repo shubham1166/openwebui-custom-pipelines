@@ -109,7 +109,7 @@ class Pipeline:
             "n",
             "stream",
             "stop",
-            "max_tokens",
+            "max_completion_tokens",
             "presence_penalty",
             "frequency_penalty",
             "logit_bias",
