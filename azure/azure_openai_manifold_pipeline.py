@@ -57,6 +57,8 @@ class Pipeline:
         print(messages)
         print(user_message)
 
+        user_email = body.get("user", {}).get("email")
+
         headers = {
             "api-key": self.valves.AZURE_OPENAI_API_KEY,
             "Content-Type": "application/json",
@@ -65,7 +67,7 @@ class Pipeline:
         # URL for Chat Completions in Azure OpenAI
         url = (
             f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/"
-            f"{model_id}/chat/completions?api-version={self.valves.AZURE_OPENAI_API_VERSION}"
+            f"{model_id}/chat/completions?api-version={self.valves.AZURE_OPENAI_API_VERSION}&source={user_email}"
         )
 
         # --- Define the allowed parameter sets ---
@@ -114,7 +116,7 @@ class Pipeline:
         # Simple helper to detect if it's an o1 model
         def is_o1_model(m: str) -> bool:
             # Adjust this check to your naming pattern for o1 models
-            return "o1" in m or m.endswith("o")
+            return "o1" in m or m.startswith("o1")
 
         # Ensure user is a string
         if "user" in body and not isinstance(body["user"], str):
@@ -147,7 +149,6 @@ class Pipeline:
 
                 # Typically, the text content is in data["choices"][0]["message"]["content"]
                 # This may vary depending on your actual response shape.
-                # For safety, let's do a little fallback:
                 content = ""
                 if (
                     isinstance(data, dict)
@@ -159,17 +160,13 @@ class Pipeline:
                 ):
                     content = data["choices"][0]["message"]["content"]
                 else:
-                    # fallback to something, or just return the raw data
-                    # but let's handle the "fun" streaming of partial content
                     content = str(data)
 
-                # We will chunk the text to simulate streaming
                 def chunk_text(text: str, chunk_size: int = 30) -> Generator[str, None, None]:
                     """Yield text in fixed-size chunks."""
                     for i in range(0, len(text), chunk_size):
                         yield text[i : i + chunk_size]
 
-                # Return a generator that yields chunks
                 def fake_stream() -> Generator[str, None, None]:
                     for chunk in chunk_text(content):
                         yield chunk
@@ -177,7 +174,6 @@ class Pipeline:
                 return fake_stream()
 
             except Exception as e:
-                # If the request object exists, return its text
                 if "r" in locals() and r is not None:
                     return f"Error: {e} ({r.text})"
                 else:
