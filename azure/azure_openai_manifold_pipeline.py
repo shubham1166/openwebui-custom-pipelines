@@ -61,8 +61,9 @@ class Pipeline:
         }
 
         # 1) Read the 'user' email from body
-        user_id = body.get("user", {})
-        user_name = user_id.get("email", "").split("@")[0]
+        # user_id = body.get("user", {})
+        # user_name = user_id.get("email", "").split("@")[0]
+        user_name = body.get("name", {})
 
         # 2) Build the base URL *manually* to preserve `@` in the `source`
         #    This ensures the server sees `source=you@company.com` literally
