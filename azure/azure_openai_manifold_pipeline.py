@@ -62,15 +62,15 @@ class Pipeline:
 
         # 1) Read the 'user' email from body
         user_id = body.get("user", {})
-        user_email = user_id.get("email", "")
+        user_name = user_id.get("email", "").split("@")[0]
 
         # 2) Build the base URL *manually* to preserve `@` in the `source`
         #    This ensures the server sees `source=you@company.com` literally
         #    instead of `source=you%40company.com`
-        if user_email:
+        if user_name:
             full_url = (
                 f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
-                f"?api-version={self.valves.AZURE_OPENAI_API_VERSION}&source={user_email}"
+                f"?api-version={self.valves.AZURE_OPENAI_API_VERSION}&source={user_name}"
             )
         else:
             # If we have no email, just omit the source from the query string
