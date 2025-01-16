@@ -60,25 +60,19 @@ class Pipeline:
             "Content-Type": "application/json",
         }
 
-    # ----------------------------------------------------
-        # 1) Read the 'user' from body without removing it
-        user_id = body.get("user")
-        print("user_id", user_id)
-        print("user_id", type(user_id))
-        if user_id is not None and not isinstance(user_id, str):
-            user_id = str(user_id)
+        # 1) Read the 'user' email from body
+        user_id = body.get("user", {})
+        user_email = user_id.get("email", "")
 
         # 2) Build the base URL and preserve the api-version param
         base_url = f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
         query_params = f"api-version={self.valves.AZURE_OPENAI_API_VERSION}"
 
-        # 3) Add the new 'source=<user>' param if user is available
-        if user_id:
-            query_params += f"&source={user_id}"
+        if user_email:
+            query_params += f"&source={user_email}"
 
         # 4) Final URL has both api-version and source
         url = f"{base_url}?{query_params}"
-        # ----------------------------------------------------
 
         # --- Define the allowed parameter sets ---
         allowed_params_default = {
