@@ -66,13 +66,9 @@ class Pipeline:
 
         # 2) Build the base URL and preserve the api-version param
         base_url = f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
-        query_params = f"api-version={self.valves.AZURE_OPENAI_API_VERSION}"
-
+        query_params = {"api-version":self.valves.AZURE_OPENAI_API_VERSION}
         if user_email:
-            query_params += f"&source={user_email}"
-
-        # 4) Final URL has both api-version and source
-        url = f"{base_url}?{query_params}"
+            query_params["source"] = user_email
 
         # --- Define the allowed parameter sets ---
         allowed_params_default = {
@@ -129,9 +125,10 @@ class Pipeline:
 
             try:
                 r = requests.post(
-                    url=url,
+                    url=base_url,
                     json=filtered_body,
                     headers=headers,
+                    params=query_params,
                     stream=False,
                 )
                 r.raise_for_status()
@@ -174,9 +171,10 @@ class Pipeline:
 
             try:
                 r = requests.post(
-                    url=url,
+                    url=base_url,
                     json=filtered_body,
                     headers=headers,
+                    params=query_params,
                     stream=True,
                 )
                 r.raise_for_status()
