@@ -39,11 +39,9 @@ class Pipeline:
         self.set_pipelines()
 
     async def on_startup(self):
-        # This function is called when the server is started.
         print(f"on_startup:{__name__}")
 
     async def on_shutdown(self):
-        # This function is called when the server is stopped.
         print(f"on_shutdown:{__name__}")
 
     def pipe(
@@ -62,14 +60,25 @@ class Pipeline:
             "Content-Type": "application/json",
         }
 
-        # URL for Chat Completions in Azure OpenAI
-        url = (
-            f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/"
-            f"{model_id}/chat/completions?api-version={self.valves.AZURE_OPENAI_API_VERSION}"
-        )
+    # ----------------------------------------------------
+        # 1) Read the 'user' from body without removing it
+        user_id = body.get("user")
+        if user_id is not None and not isinstance(user_id, str):
+            user_id = str(user_id)
+
+        # 2) Build the base URL and preserve the api-version param
+        base_url = f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
+        query_params = f"api-version={self.valves.AZURE_OPENAI_API_VERSION}"
+
+        # 3) Add the new 'source=<user>' param if user is available
+        if user_id:
+            query_params += f"&source={user_id}"
+
+        # 4) Final URL has both api-version and source
+        url = f"{base_url}?{query_params}"
+        # ----------------------------------------------------
 
         # --- Define the allowed parameter sets ---
-        # (1) Default allowed params (non-o1)
         allowed_params_default = {
             "messages",
             "temperature",
@@ -86,7 +95,7 @@ class Pipeline:
             "presence_penalty",
             "frequency_penalty",
             "logit_bias",
-            "user",
+            "user",  # <--- still here, nothing removed
             "function_call",
             "funcions",
             "tools",
@@ -98,7 +107,6 @@ class Pipeline:
             "seed",
         }
 
-        # (2) o1 models allowed params
         allowed_params_o1 = {
             "model",
             "messages",
@@ -108,32 +116,22 @@ class Pipeline:
             "presence_penalty",
             "frequency_penalty",
             "logit_bias",
-            "user",
+            "user",  # <--- still here too
         }
 
-        # Simple helper to detect if it's an o1 model
         def is_o1_model(m: str) -> bool:
-            # Adjust this check to your naming pattern for o1 models
             return "o1" in m or m.endswith("o")
-
-        # Ensure user is a string
-        if "user" in body and not isinstance(body["user"], str):
-            body["user"] = body["user"].get("id", str(body["user"]))
 
         # If it's an o1 model, do a "fake streaming" approach
         if is_o1_model(model_id):
-            # We'll remove "stream" from the body if present (since we'll do manual streaming),
-            # then filter to the allowed params for o1 models.
-            body.pop("stream", None)
+            body.pop("stream", None)  # only remove 'stream' if present, as before
             filtered_body = {k: v for k, v in body.items() if k in allowed_params_o1}
 
-            # Log which fields were dropped
             if len(body) != len(filtered_body):
                 dropped_keys = set(body.keys()) - set(filtered_body.keys())
                 print(f"Dropped params: {', '.join(dropped_keys)}")
 
             try:
-                # We make a normal request (non-streaming)
                 r = requests.post(
                     url=url,
                     json=filtered_body,
@@ -142,12 +140,7 @@ class Pipeline:
                 )
                 r.raise_for_status()
 
-                # Parse the full JSON response
                 data = r.json()
-
-                # Typically, the text content is in data["choices"][0]["message"]["content"]
-                # This may vary depending on your actual response shape.
-                # For safety, let's do a little fallback:
                 content = ""
                 if (
                     isinstance(data, dict)
@@ -159,17 +152,12 @@ class Pipeline:
                 ):
                     content = data["choices"][0]["message"]["content"]
                 else:
-                    # fallback to something, or just return the raw data
-                    # but let's handle the "fun" streaming of partial content
                     content = str(data)
 
-                # We will chunk the text to simulate streaming
                 def chunk_text(text: str, chunk_size: int = 30) -> Generator[str, None, None]:
-                    """Yield text in fixed-size chunks."""
                     for i in range(0, len(text), chunk_size):
                         yield text[i : i + chunk_size]
 
-                # Return a generator that yields chunks
                 def fake_stream() -> Generator[str, None, None]:
                     for chunk in chunk_text(content):
                         yield chunk
@@ -177,14 +165,12 @@ class Pipeline:
                 return fake_stream()
 
             except Exception as e:
-                # If the request object exists, return its text
                 if "r" in locals() and r is not None:
                     return f"Error: {e} ({r.text})"
                 else:
                     return f"Error: {e}"
 
         else:
-            # Normal pipeline for non-o1 models:
             filtered_body = {k: v for k, v in body.items() if k in allowed_params_default}
             if len(body) != len(filtered_body):
                 dropped_keys = set(body.keys()) - set(filtered_body.keys())
@@ -200,10 +186,8 @@ class Pipeline:
                 r.raise_for_status()
 
                 if filtered_body.get("stream"):
-                    # Real streaming
                     return r.iter_lines()
                 else:
-                    # Just return the JSON
                     return r.json()
 
             except Exception as e:
