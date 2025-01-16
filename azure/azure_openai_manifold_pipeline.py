@@ -39,9 +39,11 @@ class Pipeline:
         self.set_pipelines()
 
     async def on_startup(self):
+        # This function is called when the server is started.
         print(f"on_startup:{__name__}")
 
     async def on_shutdown(self):
+        # This function is called when the server is stopped.
         print(f"on_shutdown:{__name__}")
 
     def pipe(
@@ -55,32 +57,21 @@ class Pipeline:
         print(messages)
         print(user_message)
 
+        user_email = body.get("user", {}).get("email")
+
         headers = {
             "api-key": self.valves.AZURE_OPENAI_API_KEY,
             "Content-Type": "application/json",
         }
 
-        # 1) Read the 'user' email from body
-        # user_id = body.get("user", {})
-        # user_name = user_id.get("email", "").split("@")[0]
-        user_name = body.get("name", {})
-
-        # 2) Build the base URL *manually* to preserve `@` in the `source`
-        #    This ensures the server sees `source=you@company.com` literally
-        #    instead of `source=you%40company.com`
-        if user_name:
-            full_url = (
-                f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
-                f"?api-version={self.valves.AZURE_OPENAI_API_VERSION}&source={user_name}"
-            )
-        else:
-            # If we have no email, just omit the source from the query string
-            full_url = (
-                f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
-                f"?api-version={self.valves.AZURE_OPENAI_API_VERSION}"
-            )
+        # URL for Chat Completions in Azure OpenAI
+        url = (
+            f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/"
+            f"{model_id}/chat/completions?api-version={self.valves.AZURE_OPENAI_API_VERSION}&source={user_email}"
+        )
 
         # --- Define the allowed parameter sets ---
+        # (1) Default allowed params (non-o1)
         allowed_params_default = {
             "messages",
             "temperature",
@@ -97,7 +88,7 @@ class Pipeline:
             "presence_penalty",
             "frequency_penalty",
             "logit_bias",
-            "user", 
+            "user",
             "function_call",
             "funcions",
             "tools",
@@ -109,6 +100,7 @@ class Pipeline:
             "seed",
         }
 
+        # (2) o1 models allowed params
         allowed_params_o1 = {
             "model",
             "messages",
@@ -118,31 +110,45 @@ class Pipeline:
             "presence_penalty",
             "frequency_penalty",
             "logit_bias",
-            "user",  # <--- still here too
+            "user",
         }
 
+        # Simple helper to detect if it's an o1 model
         def is_o1_model(m: str) -> bool:
-            return "o1" in m or m.endswith("o")
+            # Adjust this check to your naming pattern for o1 models
+            return "o1" in m or m.startswith("o1")
+
+        # Ensure user is a string
+        if "user" in body and not isinstance(body["user"], str):
+            body["user"] = body["user"].get("id", str(body["user"]))
 
         # If it's an o1 model, do a "fake streaming" approach
         if is_o1_model(model_id):
-            body.pop("stream", None)  # only remove 'stream' if present
+            # We'll remove "stream" from the body if present (since we'll do manual streaming),
+            # then filter to the allowed params for o1 models.
+            body.pop("stream", None)
             filtered_body = {k: v for k, v in body.items() if k in allowed_params_o1}
 
+            # Log which fields were dropped
             if len(body) != len(filtered_body):
                 dropped_keys = set(body.keys()) - set(filtered_body.keys())
                 print(f"Dropped params: {', '.join(dropped_keys)}")
 
             try:
+                # We make a normal request (non-streaming)
                 r = requests.post(
-                    url=full_url,
+                    url=url,
                     json=filtered_body,
                     headers=headers,
                     stream=False,
                 )
                 r.raise_for_status()
 
+                # Parse the full JSON response
                 data = r.json()
+
+                # Typically, the text content is in data["choices"][0]["message"]["content"]
+                # This may vary depending on your actual response shape.
                 content = ""
                 if (
                     isinstance(data, dict)
@@ -157,6 +163,7 @@ class Pipeline:
                     content = str(data)
 
                 def chunk_text(text: str, chunk_size: int = 30) -> Generator[str, None, None]:
+                    """Yield text in fixed-size chunks."""
                     for i in range(0, len(text), chunk_size):
                         yield text[i : i + chunk_size]
 
@@ -173,6 +180,7 @@ class Pipeline:
                     return f"Error: {e}"
 
         else:
+            # Normal pipeline for non-o1 models:
             filtered_body = {k: v for k, v in body.items() if k in allowed_params_default}
             if len(body) != len(filtered_body):
                 dropped_keys = set(body.keys()) - set(filtered_body.keys())
@@ -180,7 +188,7 @@ class Pipeline:
 
             try:
                 r = requests.post(
-                    url=full_url,
+                    url=url,
                     json=filtered_body,
                     headers=headers,
                     stream=True,
@@ -188,8 +196,10 @@ class Pipeline:
                 r.raise_for_status()
 
                 if filtered_body.get("stream"):
+                    # Real streaming
                     return r.iter_lines()
                 else:
+                    # Just return the JSON
                     return r.json()
 
             except Exception as e:
