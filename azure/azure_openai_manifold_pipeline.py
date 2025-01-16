@@ -63,6 +63,8 @@ class Pipeline:
     # ----------------------------------------------------
         # 1) Read the 'user' from body without removing it
         user_id = body.get("user")
+        print(user_id)
+        print(type(user_id))
         if user_id is not None and not isinstance(user_id, str):
             user_id = str(user_id)
 
