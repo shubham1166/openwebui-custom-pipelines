@@ -64,11 +64,20 @@ class Pipeline:
         user_id = body.get("user", {})
         user_email = user_id.get("email", "")
 
-        # 2) Build the base URL and preserve the api-version param
-        base_url = f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
-        query_params = {"api-version":self.valves.AZURE_OPENAI_API_VERSION}
+        # 2) Build the base URL *manually* to preserve `@` in the `source`
+        #    This ensures the server sees `source=you@company.com` literally
+        #    instead of `source=you%40company.com`
         if user_email:
-            query_params["source"] = user_email
+            full_url = (
+                f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
+                f"?api-version={self.valves.AZURE_OPENAI_API_VERSION}&source={user_email}"
+            )
+        else:
+            # If we have no email, just omit the source from the query string
+            full_url = (
+                f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions"
+                f"?api-version={self.valves.AZURE_OPENAI_API_VERSION}"
+            )
 
         # --- Define the allowed parameter sets ---
         allowed_params_default = {
@@ -87,7 +96,7 @@ class Pipeline:
             "presence_penalty",
             "frequency_penalty",
             "logit_bias",
-            "user",  # <--- still here, nothing removed
+            "user", 
             "function_call",
             "funcions",
             "tools",
@@ -116,7 +125,7 @@ class Pipeline:
 
         # If it's an o1 model, do a "fake streaming" approach
         if is_o1_model(model_id):
-            body.pop("stream", None)  # only remove 'stream' if present, as before
+            body.pop("stream", None)  # only remove 'stream' if present
             filtered_body = {k: v for k, v in body.items() if k in allowed_params_o1}
 
             if len(body) != len(filtered_body):
@@ -125,10 +134,9 @@ class Pipeline:
 
             try:
                 r = requests.post(
-                    url=base_url,
+                    url=full_url,
                     json=filtered_body,
                     headers=headers,
-                    params=query_params,
                     stream=False,
                 )
                 r.raise_for_status()
@@ -171,10 +179,9 @@ class Pipeline:
 
             try:
                 r = requests.post(
-                    url=base_url,
+                    url=full_url,
                     json=filtered_body,
                     headers=headers,
-                    params=query_params,
                     stream=True,
                 )
                 r.raise_for_status()
