@@ -57,7 +57,7 @@ class Pipeline:
 
         user_email = body.get("user", {}).get("email")
 
-        body["model"] = model_id
+        body["model"] = "google/"+model_id
 
         headers = {
             "api-key": self.valves.GEMINI_API_KEY,
